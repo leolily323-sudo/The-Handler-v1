@@ -1,0 +1,1205 @@
+HANDLER SUBSYSTEM — BLUEPRINT V1
+
+Project: Production-Grade Deterministic AI Orchestrator
+Subsystem: Handler
+Version: v1
+Status: Implementation Contract
+Authority: Must remain consistent with all previously frozen architectural contracts
+
+───
+
+1. PURPOSE
+
+The Handler is the controlled execution boundary responsible for executing one typed Command that has passed the required execution-time authorization boundary.
+
+The Handler performs the operation represented by the Command and returns a typed execution result.
+
+The Handler does not determine whether the operation should occur.
+
+The Handler is an execution component, not a planning, authorization, orchestration, or reasoning component.
+
+───
+
+2. ARCHITECTURAL POSITION
+
+The Handler exists within the following frozen control-plane chain:
+
+Intent
+↓
+Planner
+↓
+ExecutionPlan
+↓
+Scheduler
+↓
+Typed Command
+↓
+Capability
+↓
+Policy
+↓
+Execution-Time Re-Authorization
+↓
+Handler
+↓
+Effect
+↓
+Result
+↓
+Event
+↓
+Projection / State
+
+The broader system contains an untrusted LLM/agent boundary upstream.
+
+The fundamental architectural principle remains:
+
+LLMs may propose. Deterministic control-plane components determine what is permitted and what actually executes.
+
+The Handler must preserve that boundary.
+
+───
+
+3. CORE RESPONSIBILITY
+
+The Handler MUST:
+
+1. Accept exactly one supported typed Command.
+
+2. Validate the Command's structural requirements.
+
+3. Operate only within its declared Handler responsibility.
+
+4. Execute only the operation represented by that Command.
+
+5. Produce a typed execution result.
+
+6. Explicitly classify success, failure, rejection, and uncertain outcomes.
+
+7. Preserve Command identity and correlation information.
+
+8. Respect the Command's idempotency identity.
+
+9. Perform external side effects only through explicit integration boundaries.
+
+10. Expose sufficient information for the Event/State infrastructure to record the execution outcome.
+
+11. Remain consistent with the previously frozen Foundation, Capability System, Policy Engine, Planner, and Scheduler contracts.
+
+───
+
+4. EXPLICIT NON-RESPONSIBILITIES
+
+The Handler MUST NOT:
+
+interpret user intent;
+
+invoke an LLM to determine what should be executed;
+
+create or modify an ExecutionPlan;
+
+schedule Commands;
+
+select or invent Commands;
+
+make policy decisions;
+
+grant capabilities;
+
+modify capabilities;
+
+bypass execution-time authorization;
+
+silently alter Command parameters;
+
+expand the scope of an authorized Command;
+
+directly manipulate unrelated workflow state;
+
+independently create contradictory authoritative state;
+
+silently append authoritative events unless explicitly required by the infrastructure contract;
+
+blindly retry unsafe external operations;
+
+claim success without sufficient evidence;
+
+convert an unknown outcome into failure merely because confirmation was not received;
+
+convert an unknown outcome into success without evidence;
+
+become a general-purpose orchestration layer;
+
+become an autonomous agent.
+
+───
+
+5. COMMAND CONTRACT
+
+Every executable Command MUST contain:
+
+command_id
+idempotency_key
+schema_version
+explicit Command type
+validated operation-specific parameters
+
+5.1 Command Identity
+
+command_id uniquely identifies the Command instance.
+
+The Handler MUST preserve the Command identity in its execution result and downstream observability.
+
+5.2 Idempotency Identity
+
+idempotency_key identifies the logical operation for purposes of duplicate protection.
+
+It MUST be present for externally effectful Commands.
+
+5.3 Schema Version
+
+schema_version identifies the Command contract version.
+
+The Handler MUST NOT silently interpret incompatible schema versions.
+
+5.4 Strong Typing
+
+Commands MUST be strongly typed.
+
+The Handler MUST NOT depend on arbitrary unvalidated dictionaries or free-form instructions for execution.
+
+Unknown or undeclared fields MUST NOT be silently accepted where strict validation is required.
+
+5.5 Command Type Enforcement
+
+Each Handler MUST declare the Command type it supports.
+
+A Handler receiving an incompatible Command type MUST reject it without producing the external effect.
+
+───
+
+6. EXECUTION AUTHORIZATION BOUNDARY
+
+The Handler execution path MUST require a fresh execution-time authorization decision immediately before execution.
+
+Canonical boundary:
+
+Typed Command
+↓
+Fresh Execution Authorization
+↓
+Handler
+↓
+Effect
+
+Authorization established during planning or scheduling MUST NOT automatically be treated as permanent execution permission.
+
+The reason is that system state, policy, capabilities, or external conditions may change between:
+
+Planning
+↓
+Scheduling
+↓
+Execution
+
+Therefore:
+
+ExecutionPlan ≠ permanent authorization.
+
+The Handler MUST NOT:
+
+manufacture authorization;
+
+weaken authorization;
+
+override authorization;
+
+reinterpret authorization;
+
+substitute its own authorization rules for the Policy/Capability system.
+
+Authorization failure MUST prevent the external effect.
+
+───
+
+7. HANDLER INTERFACE
+
+The Handler MUST expose a narrow execution interface conceptually equivalent to:
+
+handle(Command) → ExecutionResult
+
+Each concrete Handler MUST declare the Command type it supports.
+
+A Handler MUST execute only its declared Command type.
+
+The Handler interface MUST NOT expose arbitrary execution capabilities.
+
+The Handler must not provide a mechanism through which an LLM can directly submit arbitrary executable instructions.
+
+───
+
+8. EXECUTION RESULT CONTRACT
+
+Execution results MUST be strongly typed.
+
+At minimum, the execution model MUST distinguish:
+
+SUCCEEDED
+FAILED
+REJECTED
+UNKNOWN
+
+8.1 SUCCEEDED
+
+SUCCEEDED means the Handler has sufficient evidence that the requested operation completed successfully.
+
+A Handler MUST NOT report SUCCEEDED solely because a request was sent.
+
+The evidence required for success depends on the external integration contract.
+
+───
+
+8.2 FAILED
+
+FAILED means the Handler has sufficient evidence that the requested operation did not complete successfully.
+
+Examples include a confirmed external rejection or confirmed operation failure.
+
+───
+
+8.3 REJECTED
+
+REJECTED means execution did not occur because the Command was refused before the external effect.
+
+Examples:
+
+invalid Command;
+
+incompatible Command type;
+
+failed authorization;
+
+idempotency conflict;
+
+unsupported schema version.
+
+A rejected Command MUST NOT have caused the associated external effect.
+
+───
+
+8.4 UNKNOWN
+
+UNKNOWN means the Handler cannot reliably determine whether the external operation occurred.
+
+Example:
+
+Handler
+↓
+External request
+↓
+External system may have succeeded
+↓
+Network/process failure
+↓
+No confirmation
+
+The Handler MUST NOT automatically classify this as FAILED.
+
+The Handler MUST NOT automatically classify this as SUCCEEDED.
+
+The uncertainty MUST remain explicit so that recovery or reconciliation can determine the actual outcome.
+
+───
+
+9. RESULT ERROR CONTRACT
+
+The result model MUST distinguish meaningful failure categories.
+
+At minimum, the Handler architecture MUST support:
+
+VALIDATION_ERROR
+NOT_AUTHORIZED
+DUPLICATE / IDEMPOTENCY_CONFLICT
+EXTERNAL_FAILURE
+TIMEOUT
+UNKNOWN_OUTCOME
+INTERNAL_ERROR
+
+The implementation MAY define additional typed error categories when required, but MUST NOT collapse materially different execution states into one generic error.
+
+Error information MUST be safe for downstream logging and observability.
+
+Sensitive external/provider information MUST NOT automatically become part of a public domain result.
+
+───
+
+10. IDEMPOTENCY
+
+Idempotency is a critical safety boundary.
+
+Every externally effectful Command MUST have an explicit idempotency identity.
+
+The Handler execution path MUST establish idempotency protection before performing the external effect.
+
+Conceptually:
+
+Command
+↓
+Validate
+↓
+Authorize
+↓
+Claim Idempotency Identity
+↓
+External Effect
+
+The idempotency claim MUST be concurrency-safe.
+
+Two workers receiving the same logical Command MUST NOT both independently obtain permission to perform the same non-idempotent external effect.
+
+The implementation MUST account for:
+
+duplicate Commands;
+
+retries;
+
+concurrent delivery;
+
+process crashes;
+
+partial failures;
+
+external provider semantics.
+
+───
+
+11. EXACTLY-ONCE SEMANTICS
+
+The architecture MUST NOT claim universal exactly-once execution.
+
+Exactly-once behavior depends on the capabilities of the external system.
+
+The Handler architecture must instead distinguish:
+
+Command delivery semantics
+External effect semantics
+Result recording semantics
+Recovery semantics
+
+An external system that provides its own idempotency mechanism MAY allow stronger guarantees.
+
+An external system without such support MAY leave an unavoidable uncertainty window.
+
+The Handler MUST represent that limitation honestly.
+
+───
+
+12. EXTERNAL EFFECT BOUNDARY
+
+External systems MUST be accessed through explicit typed integration interfaces/ports.
+
+Conceptually:
+
+Handler
+↓
+Typed Gateway / Port
+↓
+External System
+
+The Handler's core execution logic MUST NOT become tightly coupled to provider-specific transport details when those details can be isolated behind an integration boundary.
+
+The gateway/port MUST define the semantics necessary to determine:
+
+request acceptance;
+
+confirmed success;
+
+confirmed failure;
+
+timeout;
+
+ambiguous outcome;
+
+external reference/correlation information where available.
+
+Provider-specific errors MUST be translated into the Orchestrator's typed execution-result model.
+
+───
+
+13. FAILURE CLASSIFICATION
+
+The Handler MUST explicitly classify failures.
+
+At minimum:
+
+Validation Failure
+
+The Command cannot safely be executed.
+
+Examples:
+
+missing required identity;
+
+incompatible type;
+
+invalid schema;
+
+invalid operation parameters.
+
+No external effect occurs.
+
+Authorization Failure
+
+Execution is not currently permitted.
+
+No external effect occurs.
+
+Idempotency Conflict
+
+The logical operation has already been claimed, completed, or otherwise conflicts with the idempotency contract.
+
+No unintended duplicate external effect occurs.
+
+External Failure
+
+The external system definitively reports that the requested operation failed.
+
+Timeout
+
+The external operation did not produce a response within the expected time.
+
+A timeout MUST NOT automatically mean failure because the external system may have completed the operation.
+
+Unknown Outcome
+
+The Handler lacks sufficient evidence to determine whether the operation occurred.
+
+Internal Failure
+
+The Handler itself encountered an unexpected internal failure.
+
+The implementation MUST avoid converting internal failures into false external-success claims.
+
+───
+
+14. RETRY SEMANTICS
+
+The Handler MUST NOT blindly retry external effects.
+
+Retry behavior MUST account for:
+
+idempotency;
+
+operation safety;
+
+external provider semantics;
+
+whether the previous attempt's outcome is known;
+
+whether the failure occurred before or after the external effect;
+
+whether the external system supports idempotent retries.
+
+The following sequence is explicitly dangerous:
+
+External request
+↓
+Timeout
+↓
+Assume failure
+↓
+Retry without idempotency
+↓
+Potential duplicate effect
+
+The architecture MUST instead support:
+
+External request
+↓
+Unknown outcome
+↓
+Idempotent retry or reconciliation
+↓
+Determine actual outcome
+
+where supported.
+
+───
+
+15. CRASH CONSISTENCY
+
+The design MUST explicitly account for this failure window:
+
+Handler
+↓
+External Effect succeeds
+↓
+Process crashes
+↓
+Result/Event not recorded
+
+The absence of a recorded success MUST NOT automatically be interpreted as proof that the external effect did not happen.
+
+This creates an uncertain outcome window.
+
+Recovery MUST therefore support an explicit reconciliation path where the external system permits it.
+
+The architecture must never solve this problem by simply lying about the result.
+
+───
+
+16. STATE AND EVENT BOUNDARY
+
+The Handler reports an execution result.
+
+Authoritative state transition and event recording remain governed by the State/Event infrastructure contract.
+
+The Handler MUST NOT independently create contradictory authoritative state.
+
+The following distinction MUST remain intact:
+
+Command
+= requested operation
+
+ExecutionResult
+= observed/known execution outcome
+
+Event
+= recorded fact
+
+State
+= current projection of recorded facts
+
+The Handler must not collapse these concepts.
+
+───
+
+17. EVENT SEMANTICS
+
+The Handler's result MUST contain enough information for downstream infrastructure to produce the appropriate event.
+
+The Handler MUST NOT fabricate an event claiming an effect occurred when the execution result is UNKNOWN.
+
+For example:
+
+UNKNOWN
+
+must not become:
+
+EmailSent
+
+merely because the Handler attempted to send the email.
+
+Likewise, an attempted operation must not automatically become a successful domain fact.
+
+Events represent recorded facts, not intentions.
+
+───
+
+18. CONCURRENCY
+
+The Handler MUST be safe against concurrent delivery of the same idempotent Command.
+
+The implementation MUST prevent a race such as:
+
+Worker A → check idempotency → available
+Worker B → check idempotency → available
+
+Worker A → execute
+Worker B → execute
+
+The idempotency mechanism MUST provide an atomic claim/ownership operation appropriate to the deployment environment.
+
+The Handler MUST NOT rely on a non-atomic:
+
+check()
+then
+execute()
+
+pattern for duplicate protection.
+
+───
+
+19. OBSERVABILITY
+
+Every Handler execution MUST preserve sufficient correlation information to trace:
+
+Workflow
+↓
+ExecutionPlan
+↓
+Scheduled Command
+↓
+Authorization Decision
+↓
+Handler Execution
+↓
+External Operation
+↓
+Execution Result
+↓
+Event
+↓
+State / Projection
+
+At minimum, the system MUST preserve:
+
+workflow identity where applicable;
+
+plan identity where applicable;
+
+command identity;
+
+idempotency identity;
+
+Handler identity/type;
+
+authorization decision identity/version where available;
+
+result status;
+
+error classification;
+
+external reference where available.
+
+Sensitive Command contents MUST NOT be indiscriminately logged.
+
+───
+
+20. CORRELATION
+
+Correlation information MUST remain stable throughout the execution path.
+
+The Handler MUST NOT generate a new identity that replaces the authoritative Command identity.
+
+External provider identifiers SHOULD be preserved separately from internal Command identity.
+
+Conceptually:
+
+command_id
++
+idempotency_key
++
+external_reference
+
+These represent different identities and MUST NOT be conflated.
+
+───
+
+21. DETERMINISM BOUNDARY
+
+The Handler is allowed to interact with nondeterministic external systems because execution is its purpose.
+
+However:
+
+Command interpretation MUST be deterministic.
+
+Handler selection MUST occur outside the Handler.
+
+Authorization MUST occur outside Handler decision logic.
+
+The Handler MUST NOT ask an LLM what operation to perform.
+
+External nondeterminism MUST be represented explicitly in the result.
+
+The Handler MUST NOT silently make arbitrary choices to resolve ambiguity.
+
+The control plane remains deterministic even though external execution may not be.
+
+───
+
+22. SECURITY BOUNDARY
+
+The Handler MUST treat Command input as untrusted until the required validation and authorization boundaries have been satisfied.
+
+The Handler MUST NOT:
+
+accept arbitrary executable instructions;
+
+interpret prompt content as authority;
+
+expand its own permissions;
+
+execute undeclared operations;
+
+bypass schema validation;
+
+expose secrets through results;
+
+expose secrets through logs;
+
+trust external input without validation;
+
+treat an LLM-generated value as inherently authorized.
+
+The Handler must execute what the typed Command specifies, not what some upstream natural-language instruction appears to imply.
+
+───
+
+23. AUTHORITY NON-ESCALATION
+
+Handler execution MUST NOT create additional authority.
+
+If a Command is authorized for capability X, execution of that Command MUST NOT implicitly grant capability Y.
+
+A Handler MUST NOT use one authorized operation as a pathway to invoke an unrelated privileged operation.
+
+This includes indirect escalation through:
+
+nested tool calls;
+
+arbitrary subprocess execution;
+
+dynamic provider selection;
+
+arbitrary URLs/endpoints;
+
+dynamically generated executable instructions;
+
+unvalidated external commands.
+
+Any additional capability must pass through the established authorization architecture.
+
+───
+
+24. HANDLER RESPONSIBILITY CONTAINMENT
+
+A Handler MUST execute one declared operation.
+
+It MUST NOT become:
+
+Handler
+↓
+Planner
+↓
+Scheduler
+↓
+Policy
+↓
+Another Handler
+↓
+More Commands
+
+unless a separately frozen architectural contract explicitly defines such behavior.
+
+The default Handler contract is:
+
+ONE COMMAND
+↓
+ONE DECLARED EXECUTION RESPONSIBILITY
+↓
+ONE TYPED RESULT
+
+This prevents responsibility leakage and architectural recursion.
+
+───
+
+25. NO HIDDEN ORCHESTRATION
+
+The following patterns are prohibited:
+
+Handler decides what Command to run next.
+
+Handler asks an LLM what to do next.
+
+Handler creates its own ExecutionPlan.
+
+Handler bypasses Scheduler.
+
+Handler directly invokes another privileged subsystem.
+
+Handler silently retries arbitrary operations.
+
+The Handler is an execution endpoint, not a second Orchestrator.
+
+───
+
+26. VALIDATION
+
+Validation MUST occur before any external effect.
+
+The implementation MUST validate:
+
+Command type;
+
+required identity;
+
+idempotency identity where required;
+
+schema version;
+
+operation-specific parameters;
+
+constraints necessary to safely invoke the external integration.
+
+Invalid Commands MUST be rejected before the external effect.
+
+Validation MUST NOT mutate the Command.
+
+───
+
+27. IMMUTABILITY
+
+The Handler MUST treat the incoming Command as immutable.
+
+The Handler MUST NOT silently rewrite:
+
+recipient;
+
+amount;
+
+target;
+
+operation;
+
+permissions;
+
+idempotency identity;
+
+schema version;
+
+other authoritative Command fields.
+
+If transformation is required for an external API, that transformation must occur in a controlled integration boundary and must not change the semantic meaning of the Command.
+
+───
+
+28. EXTERNAL INPUT VALIDATION
+
+External responses MUST NOT automatically be treated as trustworthy.
+
+The integration layer MUST validate:
+
+response structure;
+
+expected identifiers;
+
+status;
+
+required fields;
+
+provider-specific error structures;
+
+correlation information.
+
+Unexpected external responses MUST result in explicit failure or uncertainty rather than fabricated success.
+
+───
+
+29. SIDE-EFFECT DISCIPLINE
+
+No external side effect may occur during:
+
+Command type validation;
+
+schema validation;
+
+authorization evaluation;
+
+idempotency conflict detection;
+
+unsupported-operation rejection.
+
+The side effect begins only after all required preconditions have passed.
+
+Conceptually:
+
+Validate
+↓
+Authorize
+↓
+Claim Idempotency
+↓
+Effect
+
+───
+
+30. RESULT TRUTHFULNESS
+
+The Handler MUST report what is actually known.
+
+It must never use success as a convenience value.
+
+Examples:
+
+Request rejected before execution
+→ REJECTED
+
+External system confirms success
+→ SUCCEEDED
+
+External system confirms failure
+→ FAILED
+
+Request timed out and external completion is unknown
+→ UNKNOWN
+
+This principle is mandatory because downstream State/Event infrastructure depends on execution results being truthful.
+
+───
+
+31. RECOVERY AND RECONCILIATION
+
+Where an external system can provide lookup/reconciliation capabilities, the architecture SHOULD support recovery of ambiguous operations through the external reference or idempotency identity.
+
+Conceptually:
+
+UNKNOWN
+↓
+Recovery / Reconciliation
+↓
+External Truth
+↓
+Confirmed Outcome
+↓
+Event / Projection
+
+The Handler MUST NOT independently invent the final truth.
+
+Recovery semantics must be explicit.
+
+───
+
+32. EXTERNAL TRANSACTION BOUNDARY
+
+The Handler MUST explicitly acknowledge that the Orchestrator's local transaction boundary and an external system's transaction boundary may be different.
+
+The implementation MUST NOT imply that:
+
+Local state commit + external side effect
+
+is automatically atomic.
+If the external system cannot participate in the same transaction, crash windows MUST be represented through idempotency, uncertainty, reconciliation, or other explicitly defined mechanisms.
+33. TIME
+The Handler MUST NOT use uncontrolled wall-clock behavior as an implicit source of domain authorization.
+Timeouts and deadlines MUST be explicit execution/infrastructure concerns.
+Where timing information is required, it MUST have a defined contract and MUST NOT silently alter authorization semantics.
+The Handler MUST NOT use current time as an undocumented reason to permit or deny a Command.
+34. ERROR HANDLING
+Unexpected implementation errors MUST NOT be silently swallowed.
+The Handler MUST:
+classify expected execution failures;
+preserve enough diagnostic information for observability;
+avoid leaking sensitive information;
+avoid falsely reporting success;
+avoid converting ambiguous external effects into definitive failure;
+allow infrastructure to determine whether recovery/retry is safe.
+2. DEPENDENCY BOUNDARIES
+The Handler should depend on explicit interfaces for:
+authorization;
+idempotency;
+external integrations;
+observability where required;
+other infrastructure explicitly authorized by the architecture.
+The Handler should not directly depend on:
+LLM APIs for decision-making;
+Planner internals;
+Scheduler internals;
+Policy implementation internals;
+arbitrary global state;
+hidden mutable singletons.
+Dependencies should be injectable and testable.
+3. TESTABILITY
+Handler v1 MUST be testable without requiring real external side effects.
+Tests MUST be able to substitute external integration ports.
+At minimum, testing MUST cover:
+successful execution;
+invalid Command;
+incompatible Command type;
+missing required identity;
+authorization denial;
+idempotency conflict;
+concurrent duplicate delivery;
+confirmed external failure;
+timeout;
+unknown outcome;
+internal exception;
+retry behavior;
+crash-window reasoning;
+result truthfulness;
+external reference propagation;
+observability/correlation;
+authority-boundary violations.
+40. ACCEPTANCE CRITERIA
+Handler v1 is acceptable only if testing and review demonstrate that:
+Valid Commands execute correctly.
+Invalid Commands are rejected.
+Incompatible Command types are rejected.
+Unsupported schema versions are rejected.
+Unauthorized Commands produce no external effect.
+Duplicate Commands cannot create unintended duplicate effects.
+Concurrent duplicate execution is controlled.
+Successful operations produce SUCCEEDED.
+Confirmed failures produce FAILED.
+Pre-execution refusals produce REJECTED.
+Ambiguous external outcomes produce UNKNOWN.
+Timeouts cannot automatically create false failure claims.
+Retry behavior cannot blindly duplicate unsafe effects.
+External errors are correctly classified.
+Handler cannot bypass Policy.
+Handler cannot bypass Capability constraints.
+Handler cannot create or alter plans.
+Handler cannot silently modify Commands.
+Handler cannot acquire additional authority.
+Handler cannot become an orchestration layer.
+LLM output cannot directly invoke an external effect.
+External integrations remain behind explicit boundaries.
+Command identity remains traceable.
+Idempotency identity remains traceable.
+External references remain separately identifiable.
+Sensitive information is not indiscriminately exposed through logs/results.
+Event/State infrastructure receives truthful execution outcomes.
+Crash windows are explicitly represented.
+Recovery/reconciliation is possible where the external integration supports it.
+The implementation remains compatible with all frozen upstream subsystem contracts.
+5. ARCHITECTURAL INVARIANTS
+The following invariants are mandatory and MUST NOT be violated:
+Invariant 1 — Execution Only
+The Handler executes; it does not authorize.
+Invariant 2 — Single Typed Command
+A Handler executes one declared typed Command and does not become a workflow orchestrator.
+Invariant 3 — Fresh Authorization
+No external effect occurs without the required execution-time authorization.
+Invariant 4 — Idempotency
+Every externally effectful Command has an explicit idempotency identity and is protected against unsafe duplicate execution.
+Invariant 5 — Truthful Outcomes
+Unknown outcome is never falsely represented as success or failure.
+Invariant 6 — No Authority Escalation
+Handler execution cannot grant itself or downstream execution additional authority.
+Invariant 7 — LLM Boundary
+LLM output cannot directly cause an external effect.
+Invariant 8 — Typed External Boundary
+External effects occur through explicit integration interfaces.
+Invariant 9 — Contract Separation
+Command, Result, Event, and State remain distinct concepts.
+Invariant 10 — Concurrency Safety
+Concurrent duplicate delivery cannot bypass the idempotency boundary.
+Invariant 11 — Honest Guarantees
+The system must never claim stronger delivery or execution guarantees than its external dependencies actually provide.
+Invariant 12 — Frozen Architecture Compatibility
+Handler v1 must remain compatible with all previously frozen subsystem contracts unless an explicit architectural contradiction is formally identified and resolved before implementation.
+44. CANONICAL EXECUTION LIFECYCLE
+The canonical Handler lifecycle is:
+Receive Typed Command
+↓
+Validate Command Type
+↓
+Validate Schema / Parameters
+↓
+Validate Required Identity
+↓
+Fresh Execution-Time Authorization
+↓
+Idempotency Claim
+↓
+Execute Declared Operation
+↓
+Receive / Determine External Outcome
+↓
+Classify Outcome
+↓
+Return Typed ExecutionResult
+↓
+Event / State Infrastructure Records Outcome
+Failure boundaries:
+Validation Failure
+↓
+REJECTED
+↓
+NO EFFECT
+Authorization Failure
+↓
+REJECTED
+↓
+NO EFFECT
+Idempotency Conflict
+↓
+REJECTED
+↓
+NO NEW EFFECT
+Confirmed External Failure
+↓
+FAILED
+Confirmed External Success
+↓
+SUCCEEDED
+Ambiguous External Outcome
+↓
+UNKNOWN
+↓
+Recovery / Reconciliation
+7. REFERENCE RESPONSIBILITY MODEL
+The subsystem boundaries must remain conceptually:
+LLM
+= proposes / reasons
+
+Capability System
+= establishes available capability authority
+
+Policy Engine
+= evaluates contextual permission
+
+Planner
+= constructs ExecutionPlan
+
+Scheduler
+= coordinates and materializes Commands
+
+Execution-Time Authorization
+= confirms permission immediately before effect
+
+Handler
+= executes the authorized typed Command
+
+Gateway / Integration
+= communicates with external system
+
+ExecutionResult
+= represents known execution outcome
+
+Event Infrastructure
+= records facts
+
+Projection / State
+= represents current system state
+No Handler responsibility should silently absorb the responsibility of another subsystem.
+41. IMPLEMENTATION CONSTRAINT
+Handler v1 is an implementation of this blueprint, not an opportunity to redesign the architecture.
+The implementation MUST NOT silently introduce:
+new authority boundaries;
+new decision-making responsibilities;
+alternate execution flows;
+hidden mutable state;
+hidden retries;
+implicit LLM calls;
+arbitrary command execution;
+architectural dependencies not established by the blueprint.
+If implementation reveals a genuine contradiction in the blueprint or conflict with a previously frozen contract, the contradiction MUST be surfaced explicitly rather than silently resolved.
+42. FINAL FREEZE CONDITION
+Handler v1 is not frozen merely because implementation is complete.
+The required process is:
+Handler Blueprint v1
+↓
+Grok Implementation v1
+↓
+Grok Self-Review
+↓
+ChatGPT Architectural Audit
+↓
+Corrections
+↓
+Grok Revision
+↓
+Final Joint Review
+↓
+User Approval
+↓
+FREEZE
+Only after the final review and explicit user approval does Handler v1 become frozen architectural ground.
+43. FINAL DESIGN PRINCIPLE
+The Handler is the point where the system transitions from:
+"This operation has been planned and authorized."
+to:
+"The system is now attempting to cause the authorized effect."
+Therefore the Handler must be the narrowest possible execution boundary.
+It must execute exactly what it is authorized to execute, no more and no less; report exactly what is known, no more and no less; and preserve the separation between intention, authorization, execution, outcome, event, and state.
