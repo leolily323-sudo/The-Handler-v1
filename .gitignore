@@ -1,35 +1,40 @@
-# Python artifacts
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
-.pytest_cache/
-.coverage
-.coverage.*
-htmlcov/
-*.egg-info/
-dist/
+
+# Distribution / packaging
+.Python
 build/
-.venv/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
 venv/
+.env/
+.envrc
 env/
 ENV/
+.venv/
 
-# Local configuration and secrets
-.env
-.env.*
-!.env.example
-*.pem
-*.key
-*.p12
-*.pfx
-*credentials*.json
-*secrets*.json
+# Pytest cache
+.pytest_cache/
 
-# Editor and operating-system files
+# Editor directories and files
 .vscode/
 .idea/
-.DS_Store
-Thumbs.db
 *.swp
-*.swo
-*.log
+
+# Mac
+.DS_Store

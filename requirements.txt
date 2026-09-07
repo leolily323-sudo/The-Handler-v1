@@ -1,0 +1,2 @@
+# No runtime dependencies -- pure Python standard library implementation
+
