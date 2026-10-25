@@ -115,10 +115,10 @@ Clone the repository, enter the folder containing the Python package, and instal
 ```bash
 git clone https://github.com/leolily323-sudo/The-Handler-v1.git
 cd The-Handler-v1/Handlerv1
-python -m pip install pytest
+python -m pip install -e ".[test]"
 ```
 
-The included authorization, idempotency, and effect adapters are **in-memory test doubles**, not production-ready integrations.
+The included authorization, idempotency, and effect adapters are **in-memory test doubles**, not production-ready integrations. The Python package is installable from the `Handlerv1/` directory; publishing it to a package index is not yet part of this release.
 
 ### Basic usage (safe local demonstration)
 
@@ -191,6 +191,15 @@ The repository includes lifecycle and regression tests for rejection paths, conc
 - [Handler blueprint](Handlerv1/Handler%20Blueprint%20v1.txt)
 
 The linked status records are historical freeze-candidate documents dated August 18, 2026. They are retained as project history and should not be mistaken for a current independent audit.
+
+---
+
+## Contributing and roadmap
+
+- [Contributing guidelines](CONTRIBUTING.md)
+- [Project roadmap](ROADMAP.md)
+
+The published Handler is a research-stage subsystem with owner-frozen execution logic, not a complete production-certified orchestrator. Contributions to architecture or behavior require explicit review against the frozen contracts.
 
 ---
 
