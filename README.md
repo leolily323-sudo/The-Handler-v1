@@ -2,7 +2,7 @@
 
 `handler_v1` is a Python-based execution control plane designed to bridge non-deterministic AI decisions (LLM outputs, dynamic planners) with deterministic real-world system execution.
 
-It enforces a **Hexagonal (Ports-and-Adapters)** architecture to guarantee that no AI action reaches external infrastructure without passing strict authorization, idempotency, and side-effect boundaries.
+It uses a **Hexagonal (Ports-and-Adapters)** architecture to enforce authorization, idempotency, and explicit external-effect boundaries for commands routed through the Handler. Integrations must ensure agents cannot bypass that boundary.
 
 ---
 
@@ -46,11 +46,11 @@ When AI agents execute commands directly against production systems:
 
 ### Module Breakdown
 
-- **`handler_v1/core/handler.py`**: The primary command pipeline that manages the lifecycle of incoming execution requests.
-- **`handler_v1/ports/authorization.py`**: Enforces policy permissions before execution.
-- **`handler_v1/ports/idempotency.py`**: Prevents duplicate execution by checking idempotency keys and state tokens.
-- **`handler_v1/ports/external_effect.py`**: Isolates side effects, logging and capturing external system interactions.
-- **`handler_v1/results/execution_result.py`**: Formats deterministic execution outputs returned to the caller.
+- **`Handlerv1/handler_v1/core/handler.py`**: The primary command pipeline that manages the lifecycle of incoming execution requests.
+- **`Handlerv1/handler_v1/ports/authorization.py`**: Enforces policy permissions before execution.
+- **`Handlerv1/handler_v1/ports/idempotency.py`**: Prevents duplicate execution by checking idempotency keys and state tokens.
+- **`Handlerv1/handler_v1/ports/external_effect.py`**: Isolates side effects, logging and capturing external system interactions.
+- **`Handlerv1/handler_v1/results/execution_result.py`**: Formats deterministic execution outputs returned to the caller.
 
 ---
 
@@ -64,7 +64,7 @@ The intended execution path is:
 
 **LLM / Agent → Proposed Command → Handler → Authorization → Idempotency → External Effect Boundary → External System**
 
-There is no supported execution path in which an untrusted LLM output directly reaches external infrastructure.
+The Handler exposes no supported direct LLM-to-effect path. An integrating application must separately ensure that agents cannot bypass the Handler.
 
 This separation is deliberate:
 
@@ -105,50 +105,92 @@ The Handler's responsibility is narrower and more defensible:
 
 ## Quickstart
 
-### 1. Installation
+### Requirements
+
+- Python 3.10+ (recommended; the source uses modern type annotations)
+- `pytest` to run the tests
+
+Clone the repository, enter the folder containing the Python package, and install the test runner:
 
 ```bash
-git clone <REPOSITORY_URL>
-cd handler_v1
-pip install -r requirements.txt
+git clone https://github.com/leolily323-sudo/The-Handler-v1.git
+cd The-Handler-v1/Handlerv1
+python -m pip install pytest
 ```
 
-### 2. Basic Usage
+The included authorization, idempotency, and effect adapters are **in-memory test doubles**, not production-ready integrations.
+
+### Basic usage (safe local demonstration)
+
+This example records an intended notification in memory. It does **not** send an email or call an external API.
 
 ```python
-from handler_v1.core.handler import CommandHandler
-from handler_v1.commands.example_commands import SystemActionCommand
-from handler_v1.ports.in_memory import InMemoryPortAdapter
-
-# Initialize Handler with safety ports
-ports = InMemoryPortAdapter()
-handler = CommandHandler(ports=ports)
-
-# Define an action proposed by an AI agent
-command = SystemActionCommand(
-    action_id="cmd_98234",
-    idempotency_key="idempotent_key_abc123",
-    payload={"action": "restart_service", "target": "auth_db"}
+from handler_v1.commands.example_commands import SendNotificationCommand
+from handler_v1.core.handler import HandlerContext
+from handler_v1.core.notification_handler import SendNotificationHandler
+from handler_v1.ports.in_memory import (
+    AlwaysAllowAuthorization,
+    InMemoryIdempotency,
+    RecordingEffectPort,
 )
+from handler_v1.ports.schema import StaticSchemaRegistry
+from handler_v1.ports.external_effect import ExternalOutcome, ExternalStatus
 
-# Dispatch through deterministic control plane
-result = handler.dispatch(command)
+context = HandlerContext(
+    authorization=AlwaysAllowAuthorization(),
+    idempotency=InMemoryIdempotency(),
+    schema_registry=StaticSchemaRegistry(),
+)
+effect = RecordingEffectPort(
+    ExternalOutcome(
+        status=ExternalStatus.CONFIRMED_SUCCESS,
+        external_reference="demo-record-1",
+    )
+)
+handler = SendNotificationHandler(context=context, effect_port=effect)
 
-if result.is_success:
-    print(f"Command Executed Safely: {result.data}")
-else:
-    print(f"Blocked by Control Plane: {result.error}")
+command = SendNotificationCommand(
+    command_id="demo-command-1",
+    idempotency_key="demo-operation-1",
+    schema_version="1.0",
+    recipient="example@example.com",
+    channel="email",
+    body="Hello from the local Handler demo",
+)
+result = handler.handle(command)
+print(result.status.value)
+print("Effect calls recorded:", len(effect.calls))
 ```
+
+Expected output:
+
+```text
+SUCCEEDED
+Effect calls recorded: 1
+```
+
+For real deployments, inject authorization and durable idempotency adapters with the contracts documented in [FINAL-STATUS.md](Handlerv1/handler_v1/FINAL-STATUS.md). A successful in-memory demonstration is not proof of end-to-end production safety.
 
 ---
 
 ## Testing
 
-Run the full automated test suite verifying lifecycle safety, port rejection, and idempotency checks:
+From `The-Handler-v1/Handlerv1`:
 
 ```bash
-pytest handler_v1/tests/test_handler_lifecycle.py
+python -m pytest handler_v1/tests/ -q
 ```
+
+The repository includes lifecycle and regression tests for rejection paths, concurrent idempotency claims, unknown external outcomes, and post-effect failure handling. Historical audit results should be distinguished from a fresh test run against the current commit.
+
+### Project documentation
+
+- [Implementation notes](Handlerv1/handler_v1/IMPLEMENTATION_NOTES.md)
+- [Handler status record](Handlerv1/handler_v1/FINAL-STATUS.md)
+- [Architectural project state](Handlerv1/CURRENT-STATE.md)
+- [Handler blueprint](Handlerv1/Handler%20Blueprint%20v1.txt)
+
+The linked status records are historical freeze-candidate documents dated August 18, 2026. They are retained as project history and should not be mistaken for a current independent audit.
 
 ---
 
