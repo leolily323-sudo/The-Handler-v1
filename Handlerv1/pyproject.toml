@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "handler-v1-control-plane"
 version = "0.1.0"
 description = "A deterministic, fail-closed execution boundary for AI-proposed commands"
-readme = {file = "../README.md", content-type = "text/markdown"}
+readme = {text = "Deterministic command execution boundary for AI agent integrations. See the repository README for setup, architecture, and limitations.", content-type = "text/plain"}
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [{name = "leolily323-sudo"}]
