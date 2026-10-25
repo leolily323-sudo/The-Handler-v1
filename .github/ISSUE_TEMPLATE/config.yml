@@ -1,8 +1,1 @@
 blank_issues_enabled: false
-defaults:
-  - type: bug_report
-    about: Report a functional or documentation problem.
-    name: Bug report
-  - type: feature_request
-    about: Suggest a documentation, example, or maintainer workflow improvement.
-    name: Feature request
